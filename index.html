@@ -634,6 +634,7 @@ a:focus-visible{
     question: 'Do you love me?',
     subQuestion: 'My heart has a secret question for you... 🌹',
     yesText: '❤️ Yes!',
+    noInitialText: 'No',
     noText: 'Think again! ❤️',
     dodgeMessages: [
       'Are you sure? 🥺',
@@ -650,6 +651,11 @@ a:focus-visible{
     fireworksButtonText: '🎆 Launch Heart Fireworks ❤️',
     cosmicTitle: 'Our Cosmic Night Sky 🌌',
     cosmicSubtitle: 'Tap anywhere in the sky to launch heart fireworks! ✨',
+    // Optional background music: paste a direct link to an MP3 file here
+    // (e.g. a link from Dropbox/Google Drive "direct download", GitHub's
+    // raw.githubusercontent.com, or any file host). Leave it empty ('') to
+    // disable music entirely — the 🎵 button will just stay quietly off.
+    musicUrl: 'bg-music.mp3',
     backButtonText: '❤️ Back to Love Card'
   };
 
@@ -828,6 +834,7 @@ a:focus-visible{
       this.msgEl.className = 'dodge-msg';
       this.btn.appendChild(this.msgEl);
       this._msgTimer = null;
+      this.labelEl = document.getElementById('no-btn-label');
 
       this.btn.addEventListener('mouseenter', () => this._dodge());
       this.btn.addEventListener('focus', () => this._dodge());
@@ -845,6 +852,13 @@ a:focus-visible{
       if (now - this._lastDodge < 150) return;
       this._lastDodge = now;
       this.attempts++;
+
+      // The button reads "No" until the very first attempt to press it —
+      // then it permanently switches to "Think again!" to signal that
+      // this is no longer a normal, catchable button.
+      if (this.attempts === 1 && this.labelEl) {
+        this.labelEl.textContent = this.config.noText;
+      }
 
       if (this.responsive.reducedMotion) {
         this._showMessage();
@@ -864,15 +878,22 @@ a:focus-visible{
     _reposition() {
       const w = this.btn.offsetWidth || 160;
       const h = this.btn.offsetHeight || 50;
-      const margin = 16;
+      // Rotation and scale (applied below) visually enlarge the button well
+      // beyond its own width/height — a rotated pill's bounding box can be
+      // ~1.4x taller/wider than its unrotated box. A flat 16px margin isn't
+      // enough to account for that, so the button could clip off-screen.
+      // This buffer scales with the button's own size to always keep the
+      // fully-rotated, fully-scaled button on screen.
+      const safety = Math.max(w, h) * 0.45;
+      const margin = 16 + safety;
       const maxX = Math.max(margin, window.innerWidth - w - margin);
       const maxY = Math.max(margin, window.innerHeight - h - margin);
       const x = margin + Math.random() * (maxX - margin);
       const y = margin + Math.random() * (maxY - margin);
 
       const tier = this.attempts <= 1 ? 0 : this.attempts <= 3 ? 1 : 2;
-      const rot = tier === 2 ? Math.random() * 40 - 20 : tier === 1 ? Math.random() * 16 - 8 : 0;
-      const scale = tier === 2 ? 0.82 + Math.random() * 0.5 : 1;
+      const rot = tier === 2 ? Math.random() * 32 - 16 : tier === 1 ? Math.random() * 14 - 7 : 0;
+      const scale = tier === 2 ? 0.86 + Math.random() * 0.3 : 1;
 
       this.btn.style.left = x + 'px';
       this.btn.style.top = y + 'px';
@@ -1022,28 +1043,52 @@ a:focus-visible{
   /*  curve: x = 16 sin³(t), y = 13cos(t) − 5cos(2t) − 2cos(3t) − cos(4t) */
   /* ------------------------------------------------------------------ */
   class HeartFirework {
-    constructor(x, y, palette, scaleFactor = 1) {
+    /**
+     * @param x,y        explosion center, in canvas pixels
+     * @param palette    array of colors to draw particles from
+     * @param radiusPx   target pixel radius of the heart shape — this controls
+     *                   SIZE and is independent of device performance tier, so
+     *                   the heart always reads clearly no matter the device
+     * @param countScale performance-only multiplier for particle DENSITY
+     *                   (device tier / reduced-motion), never lets the shape
+     *                   drop below a legible minimum particle count
+     */
+    constructor(x, y, palette, radiusPx = 70, countScale = 1) {
       this.x = x; this.y = y;
       this.particles = [];
-      const count = Math.max(18, Math.round(90 * scaleFactor));
-      for (let i = 0; i < count; i++) {
-        const t = Math.random() * Math.PI * 2;
-        const hx = 16 * Math.pow(Math.sin(t), 3);
-        const hy = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
-        const scale = (7 + Math.random() * 2.2) * Math.max(0.55, scaleFactor);
-        this.particles.push({
-          x: 0, y: 0,
-          tx: hx * scale, ty: hy * scale,
-          progress: 0,
-          speed: 0.05 + Math.random() * 0.045,
-          size: 2 + Math.random() * 2.6,
-          color: palette[Math.floor(Math.random() * palette.length)],
-          history: [],
-          life: 1,
-          decay: 0.006 + Math.random() * 0.007,
-          twinkle: Math.random() * Math.PI * 2
-        });
-      }
+      // Two layers: a crisp outline layer that traces the curve, and a
+      // sparser inner-fill layer for volume, so the heart reads at a glance
+      // instead of looking like a scattered dot cloud.
+      const outlineCount = Math.max(56, Math.round(140 * countScale));
+      const fillCount = Math.max(18, Math.round(50 * countScale));
+      const scale = radiusPx / 16; // curve's x amplitude peaks at 16
+
+      const addLayer = (n, radialJitter, sizeMin, sizeMax) => {
+        for (let i = 0; i < n; i++) {
+          // stratified sampling around the curve (even index-based spacing +
+          // a little jitter) instead of pure random t, so points don't
+          // clump and leave gaps that break the silhouette
+          const t = (i / n) * Math.PI * 2 + (Math.random() - 0.5) * ((Math.PI * 2) / n) * 0.7;
+          const hx = 16 * Math.pow(Math.sin(t), 3);
+          const hy = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
+          const j = 1 + (Math.random() - 0.5) * radialJitter;
+          this.particles.push({
+            x: 0, y: 0,
+            tx: hx * scale * j, ty: hy * scale * j,
+            progress: 0,
+            speed: 0.045 + Math.random() * 0.04,
+            size: sizeMin + Math.random() * (sizeMax - sizeMin),
+            color: palette[Math.floor(Math.random() * palette.length)],
+            history: [],
+            life: 1,
+            decay: 0.006 + Math.random() * 0.006,
+            twinkle: Math.random() * Math.PI * 2
+          });
+        }
+      };
+      addLayer(outlineCount, 0.12, 2.4, 4.6);   // clean outline
+      addLayer(fillCount, 0.65, 1.6, 3.2);      // inner sparkle fill
+
       this.done = false;
     }
     update(dt) {
@@ -1225,8 +1270,14 @@ a:focus-visible{
         p.progress += p.speed * (dt / 16);
         if (p.progress >= 1) {
           const palette = this.palette[Math.floor(Math.random() * this.palette.length)];
-          const scale = (p.small ? 0.55 : 1) * Math.max(0.5, this.responsive.particleScale());
-          this.explosions.push(new HeartFirework(p.tx, p.ty, palette, scale));
+          // Size is pinned to the viewport, NOT the performance tier, so the
+          // heart is always clearly legible; only particle density scales
+          // down on weaker devices, with a legible minimum enforced inside
+          // HeartFirework itself.
+          const minDim = Math.min(this.w, this.h);
+          const radiusPx = minDim * (p.small ? 0.11 : 0.19);
+          const countScale = Math.max(0.45, this.responsive.particleScale());
+          this.explosions.push(new HeartFirework(p.tx, p.ty, palette, radiusPx, countScale));
           this.projectiles.splice(i, 1);
         }
       }
@@ -1302,15 +1353,25 @@ a:focus-visible{
   /*  AudioController — optional background music, no forced autoplay   */
   /* ------------------------------------------------------------------ */
   class AudioController {
-    constructor(btn, iconEl, liveRegion) {
+    constructor(btn, iconEl, liveRegion, musicUrl) {
       this.btn = btn;
       this.icon = iconEl;
       this.live = liveRegion;
       this.enabled = false;
+
+      if (!musicUrl) {
+        // No track configured — hide the toggle entirely rather than
+        // showing a button that can never do anything.
+        this.available = false;
+        this.btn.style.display = 'none';
+        return;
+      }
+
       this.available = true;
-      this.audio = new Audio('assets/audio/bg-music.mp3');
+      this.audio = new Audio(musicUrl);
       this.audio.loop = true;
       this.audio.volume = 0.35;
+      this.audio.crossOrigin = 'anonymous';
       this.audio.addEventListener('error', () => {
         this.available = false;
         this.btn.classList.add('is-muted');
@@ -1397,7 +1458,8 @@ a:focus-visible{
       this.audio = new AudioController(
         document.getElementById('music-toggle'),
         document.querySelector('.music-icon'),
-        this.live
+        this.live,
+        CONFIG.musicUrl
       );
 
       this._applyConfig();
@@ -1415,7 +1477,7 @@ a:focus-visible{
       setText('.question', CONFIG.question);
       setText('.sub-question', CONFIG.subQuestion);
       setText('#yes-btn span', CONFIG.yesText);
-      setText('#no-btn-label', CONFIG.noText);
+      setText('#no-btn-label', CONFIG.noInitialText);
       setText('#reveal-title', CONFIG.revealTitle);
       setText('#reveal-text', CONFIG.revealText);
       setText('#message-box-text', CONFIG.revealMessage);
