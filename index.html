@@ -252,17 +252,27 @@ a:focus-visible{
 }
 
 .btn--no{
-  background:rgba(140,28,63,0.08);
-  color:#8c1c3f;
-  border:1.5px solid rgba(140,28,63,0.35);
-  transition:transform .28s var(--ease-spring), box-shadow .3s ease, left .32s var(--ease-spring), top .32s var(--ease-spring), opacity .2s ease;
+  background:rgba(255,255,255,0.95);
+  color:#7a1734;
+  border:1.5px solid rgba(122,23,52,0.4);
+  box-shadow:
+    0 10px 26px -10px rgba(20,0,10,0.55),
+    0 0 0 1px rgba(255,255,255,0.5) inset;
+  transition:transform .28s var(--ease-spring), box-shadow .3s ease, left .32s var(--ease-spring), top .32s var(--ease-spring), opacity .2s ease, background .3s ease;
 }
 .btn--no:hover{
-  box-shadow:0 8px 18px -8px rgba(140,28,63,0.35);
+  background:rgba(255,255,255,1);
+  box-shadow:0 14px 30px -10px rgba(20,0,10,0.6);
 }
 .btn--no.is-roaming{
   position:fixed;
   z-index:60;
+  /* extra glow so it reads clearly against the dark scene background too,
+     wherever it lands, instead of blending into it */
+  box-shadow:
+    0 16px 36px -10px rgba(0,0,0,0.6),
+    0 0 26px 5px rgba(255,182,193,0.55),
+    0 0 0 1px rgba(255,255,255,0.6) inset;
 }
 
 .btn--fireworks{
@@ -1358,6 +1368,7 @@ a:focus-visible{
       this.icon = iconEl;
       this.live = liveRegion;
       this.enabled = false;
+      this._userPaused = false;
 
       if (!musicUrl) {
         // No track configured — hide the toggle entirely rather than
@@ -1376,7 +1387,41 @@ a:focus-visible{
         this.available = false;
         this.btn.classList.add('is-muted');
       });
-      this.btn.addEventListener('click', () => this.toggle());
+      this.btn.addEventListener('click', () => { this._userPaused = this.enabled; this.toggle(); });
+
+      this._attemptAutoplay();
+    }
+    /**
+     * Browsers block real (no-gesture) autoplay-with-sound, so a bare
+     * play() call on load will almost always be rejected. To make music
+     * still feel automatic, we (1) try it anyway in case the browser
+     * allows it, and (2) if blocked, silently start it on the very first
+     * tap/click/keypress anywhere on the page — which browsers DO count
+     * as a user gesture, so it starts the instant someone begins
+     * interacting, without them needing to find and tap the 🎵 button.
+     */
+    _attemptAutoplay() {
+      const tryPlay = () => this.audio.play().then(() => this._onPlaying()).catch(() => false);
+      tryPlay();
+
+      const start = () => {
+        if (this.enabled || this._userPaused || !this.available) { cleanup(); return; }
+        this.audio.play().then(() => this._onPlaying()).catch(() => {});
+        cleanup();
+      };
+      const opts = { capture: true, passive: true };
+      const cleanup = () => {
+        document.removeEventListener('pointerdown', start, opts);
+        document.removeEventListener('keydown', start, opts);
+      };
+      document.addEventListener('pointerdown', start, opts);
+      document.addEventListener('keydown', start, opts);
+    }
+    _onPlaying() {
+      this.enabled = true;
+      this.icon.textContent = '🔊';
+      this.btn.classList.remove('is-muted');
+      this.btn.setAttribute('aria-pressed', 'true');
     }
     toggle() {
       if (!this.available) {
@@ -1391,10 +1436,8 @@ a:focus-visible{
         this.btn.setAttribute('aria-pressed', 'false');
       } else {
         this.audio.play().then(() => {
-          this.enabled = true;
-          this.icon.textContent = '🔊';
-          this.btn.classList.remove('is-muted');
-          this.btn.setAttribute('aria-pressed', 'true');
+          this._userPaused = false;
+          this._onPlaying();
         }).catch(() => {
           this.available = false;
           this.btn.classList.add('is-muted');
