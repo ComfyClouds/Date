@@ -1410,12 +1410,11 @@ a:focus-visible{
         cleanup();
       };
       const opts = { capture: true, passive: true };
+      const events = ['pointerdown', 'touchend', 'click', 'keydown'];
       const cleanup = () => {
-        document.removeEventListener('pointerdown', start, opts);
-        document.removeEventListener('keydown', start, opts);
+        events.forEach((evt) => document.removeEventListener(evt, start, opts));
       };
-      document.addEventListener('pointerdown', start, opts);
-      document.addEventListener('keydown', start, opts);
+      events.forEach((evt) => document.addEventListener(evt, start, opts));
     }
     _onPlaying() {
       this.enabled = true;
