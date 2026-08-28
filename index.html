@@ -1422,6 +1422,13 @@ a:focus-visible{
       this.btn.classList.remove('is-muted');
       this.btn.setAttribute('aria-pressed', 'true');
     }
+    tryStart() {
+      if (!this.available || this.enabled) return;
+      this.audio.play().then(() => {
+        this._userPaused = false;
+        this._onPlaying();
+      }).catch(() => {});
+    }
     toggle() {
       if (!this.available) {
         this.live.textContent = 'Background music is not available.';
@@ -1553,6 +1560,8 @@ a:focus-visible{
     _handleYes() {
       if (this._yesInFlight) return;
       this._yesInFlight = true;
+
+      this.audio.tryStart();
 
       const card = document.getElementById('love-card');
       const rect = card.getBoundingClientRect();
